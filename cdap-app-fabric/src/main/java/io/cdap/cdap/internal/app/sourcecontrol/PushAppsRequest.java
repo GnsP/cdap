@@ -17,39 +17,29 @@
 package io.cdap.cdap.internal.app.sourcecontrol;
 
 import com.google.common.base.Objects;
-import io.cdap.cdap.proto.id.NamespaceId;
 import io.cdap.cdap.proto.sourcecontrol.RepositoryConfig;
 import io.cdap.cdap.sourcecontrol.CommitMeta;
 import java.util.Set;
 
 /**
- * Request type for {@link PushAppsOperation}.
+ * Request type for {@link PullAppsOperation}.
  */
 public class PushAppsRequest {
 
-  private final NamespaceId namespace;
   private final Set<String> apps;
   private final RepositoryConfig config;
+
   private final CommitMeta commitDetails;
 
   /**
    * Default Constructor.
    *
-   * @param apps Set of apps to push.
+   * @param apps Set of apps to pull.
    */
-  public PushAppsRequest(
-      NamespaceId namespace,
-      Set<String> apps,
-      RepositoryConfig config,
-      CommitMeta commitDetails) {
-    this.namespace = namespace;
+  public PushAppsRequest(Set<String> apps, RepositoryConfig config, CommitMeta commitDetails) {
     this.apps = apps;
     this.config = config;
     this.commitDetails = commitDetails;
-  }
-
-  public NamespaceId getNamespace() {
-    return namespace;
   }
 
   public Set<String> getApps() {
@@ -75,13 +65,12 @@ public class PushAppsRequest {
 
     PushAppsRequest that = (PushAppsRequest) o;
     return Objects.equal(this.getApps(), that.getApps())
-        && Objects.equal(this.getNamespace(), that.getNamespace())
         && Objects.equal(this.getConfig(), that.getConfig())
         && Objects.equal(this.getCommitDetails(), that.getCommitDetails());
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(getNamespace(), getApps(), getConfig(), getCommitDetails());
+    return Objects.hashCode(getApps(), getConfig(), getCommitDetails());
   }
 }

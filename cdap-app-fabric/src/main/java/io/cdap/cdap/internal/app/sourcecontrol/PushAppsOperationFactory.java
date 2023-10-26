@@ -27,8 +27,8 @@ public interface PushAppsOperationFactory {
    * Returns an implementation of {@link PushAppsOperation} that operates on the given {@link
    * PushAppsRequest}.
    *
-   * @param request contains list of apps to push
+   * @param request contains list of apps to pull
    * @return a new instance of {@link PushAppsOperation}.
    */
-  PushAppsOperation create(PushAppsRequest request);
+  PushAppsRequest create(PushAppsOperation request);
 }

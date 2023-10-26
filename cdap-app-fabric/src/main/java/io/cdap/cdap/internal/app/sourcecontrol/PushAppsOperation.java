@@ -20,13 +20,15 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
 import com.google.inject.assistedinject.Assisted;
+import io.cdap.cdap.common.BadRequestException;
 import io.cdap.cdap.common.NotFoundException;
 import io.cdap.cdap.internal.operation.LongRunningOperation;
 import io.cdap.cdap.internal.operation.LongRunningOperationContext;
 import io.cdap.cdap.internal.operation.OperationException;
-import io.cdap.cdap.proto.ApplicationDetail;
+import io.cdap.cdap.metadata.ApplicationDetailFetcher;
 import io.cdap.cdap.proto.app.UpdateMultiSourceControlMetaReqeust;
 import io.cdap.cdap.proto.app.UpdateSourceControlMetaRequest;
+import io.cdap.cdap.proto.id.NamespaceId;
 import io.cdap.cdap.proto.operation.OperationResource;
 import io.cdap.cdap.proto.sourcecontrol.RepositoryConfig;
 import io.cdap.cdap.sourcecontrol.ApplicationManager;
@@ -48,6 +50,7 @@ import java.util.stream.Collectors;
 public class PushAppsOperation implements LongRunningOperation {
 
   private final PushAppsRequest request;
+
   private final InMemorySourceControlOperationRunner scmOpRunner;
   private final ApplicationManager applicationManager;
 
@@ -64,7 +67,7 @@ public class PushAppsOperation implements LongRunningOperation {
   @Inject
   PushAppsOperation(@Assisted PushAppsRequest request,
       InMemorySourceControlOperationRunner runner,
-      ApplicationManager applicationManager) {
+      ApplicationManager applicationManager, ApplicationDetailFetcher appDetailsFetcher) {
     this.request = request;
     this.applicationManager = applicationManager;
     this.scmOpRunner = runner;
@@ -73,55 +76,55 @@ public class PushAppsOperation implements LongRunningOperation {
   @Override
   public ListenableFuture<Set<OperationResource>> run(LongRunningOperationContext context)
       throws OperationException {
+    RepositoryConfig repositoryConfig = request.getConfig();
+    NamespaceId namespaceId = context.getRunId().getNamespaceId();
+    MultiPushAppOperationRequest pushReq = new MultiPushAppOperationRequest(
+        namespaceId,
+        repositoryConfig,
+        request.getApps(),
+        request.getCommitDetails()
+    );
+
+    List<PushAppResponse> responses = new ArrayList<>();
+
     try {
-      RepositoryConfig repositoryConfig = request.getConfig();
-      List<ApplicationDetail> apps = new ArrayList<>();
-      for (String app : request.getApps()) {
-        apps.add(applicationManager.get(request.getNamespace().appReference(app)));
-      }
-
-      MultiPushAppOperationRequest pushReq = new MultiPushAppOperationRequest(
-          repositoryConfig,
-          context.getRunId().getNamespaceId(),
-          apps,
-          request.getCommitDetails()
-      );
-
-      scmOpRunner.push(pushReq, responses -> {
-        List<UpdateSourceControlMetaRequest> updateGitMetaRequests = new ArrayList<>();
-        for (PushAppResponse response : responses) {
-          updateGitMetaRequests.add(new UpdateSourceControlMetaRequest(
-              response.getName(),
-              response.getVersion(),
-              response.getFileHash()
-          ));
-        }
-        UpdateMultiSourceControlMetaReqeust multiScmMetaUpdateReq = new UpdateMultiSourceControlMetaReqeust(
-            updateGitMetaRequests
-        );
-        try {
-          applicationManager.updateSourceControlMeta(
-              context.getRunId().getNamespaceId(),
-              multiScmMetaUpdateReq
-          );
-        } catch (Exception e) {
-          throw new SourceControlException(e);
-        }
-        context.updateOperationResources(getResources());
-      });
-    } catch (
-        NotFoundException | SourceControlException | IOException | NoChangesToPushException e) {
+      // pull and deploy applications one at a time
+      responses = scmOpRunner.multiPush(pushReq, applicationManager);
+      context.updateOperationResources(getResources(namespaceId, responses));
+    } catch (SourceControlException | NoChangesToPushException e) {
       throw new OperationException(
-          "Failed to push applications. " + e.getMessage(),
-          Collections.emptyList());
+          String.format("Failed to push applications: %s", e.getMessage()), Collections.emptyList()
+      );
     }
 
-    return Futures.immediateFuture(getResources());
+    try {
+      // update git metadata for the pushed application
+      applicationManager.updateSourceControlMeta(namespaceId, getUpdateMetaRequest(responses));
+    } catch (NotFoundException | BadRequestException | IOException | SourceControlException e) {
+      throw new OperationException(
+          String.format("Failed to update git metadata: %s", e.getMessage()),
+          Collections.emptySet()
+      );
+    }
+
+    // TODO(samik) Update this after along with the runner implementation
+    return Futures.immediateFuture(getResources(namespaceId, responses));
   }
 
-  private Set<OperationResource> getResources() {
-    return request.getApps().stream()
-        .map(OperationResource::new)
+  private UpdateMultiSourceControlMetaReqeust getUpdateMetaRequest(
+      List<PushAppResponse> responses) {
+    List<UpdateSourceControlMetaRequest> reqs = responses.stream()
+        .map(response -> new UpdateSourceControlMetaRequest(
+            response.getName(), response.getVersion(), response.getFileHash()))
+        .collect(Collectors.toList());
+    return new UpdateMultiSourceControlMetaReqeust(reqs);
+  }
+
+  private Set<OperationResource> getResources(NamespaceId namespaceId,
+      List<PushAppResponse> responses) {
+    return responses.stream()
+        .map(response -> new OperationResource(
+            namespaceId.app(response.getName(), response.getVersion()).toString()))
         .collect(Collectors.toSet());
   }
 }
