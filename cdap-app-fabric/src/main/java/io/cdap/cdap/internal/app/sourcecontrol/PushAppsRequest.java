@@ -34,7 +34,7 @@ public class PushAppsRequest {
   /**
    * Default Constructor.
    *
-   * @param apps Set of apps to pull.
+   * @param apps Set of apps to push.
    */
   public PushAppsRequest(Set<String> apps, RepositoryConfig config, CommitMeta commitDetails) {
     this.apps = apps;

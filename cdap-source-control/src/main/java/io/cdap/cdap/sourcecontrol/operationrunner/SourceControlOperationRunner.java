@@ -43,7 +43,7 @@ public interface SourceControlOperationRunner extends Service {
     AuthenticationConfigException;
 
   /**
-   * Push an application config to remote git repository.
+   * Push application configs to remote git repository.
    *
    * @param pushRequest {@link MultiPushAppOperationRequest} of the applications to be pushed
    * @param appManager {@link ApplicationManager} to fetch the app details

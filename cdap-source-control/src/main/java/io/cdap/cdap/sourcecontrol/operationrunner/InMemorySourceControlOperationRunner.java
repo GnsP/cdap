@@ -64,20 +64,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * In-Memory implementation for {@link SourceControlOperationRunner}. Runs all git operation inside
- * calling service.
+ * In-Memory implementation for {@link SourceControlOperationRunner}.
+ * Runs all git operation inside calling service.
  */
 @Singleton
 public class InMemorySourceControlOperationRunner extends
     AbstractIdleService implements SourceControlOperationRunner {
-
   // Gson for decoding request
   private static final Gson DECODE_GSON =
-      new GsonBuilder().registerTypeAdapterFactory(new CaseInsensitiveEnumTypeAdapterFactory())
-          .create();
+    new GsonBuilder().registerTypeAdapterFactory(new CaseInsensitiveEnumTypeAdapterFactory()).create();
   private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-  private static final Logger LOG = LoggerFactory.getLogger(
-      InMemorySourceControlOperationRunner.class);
+  private static final Logger LOG = LoggerFactory.getLogger(InMemorySourceControlOperationRunner.class);
   private final RepositoryManagerFactory repoManagerFactory;
 
   @Inject
@@ -225,7 +222,7 @@ public class InMemorySourceControlOperationRunner extends
   }
 
   /**
-   * Atomic operation of writing application and push, return the push response.
+   * Write {@link ApplicationDetail} to config file in git repository.
    *
    * @param repositoryManager {@link RepositoryManager} to conduct git operations
    * @param appToPush application details to write
@@ -241,8 +238,8 @@ public class InMemorySourceControlOperationRunner extends
       filePathToWrite = validateAppConfigRelativePath(repositoryManager, appRelativePath);
     } catch (IllegalArgumentException e) {
       throw new SourceControlException(String.format("Failed to push application %s: %s",
-          appToPush.getName(),
-          e.getMessage()), e);
+                                                     appToPush.getName(),
+                                                     e.getMessage()), e);
     }
     // Opens the file for writing, creating the file if it doesn't exist,
     // or truncating an existing regular-file to a size of 0
@@ -259,12 +256,12 @@ public class InMemorySourceControlOperationRunner extends
   }
 
   /**
-   * Atomic operation of writing application and push, return the push response.
+   * Atomic operation of writing commit and push, return push responses.
    *
    * @param repositoryManager {@link RepositoryManager} to conduct git operations
    * @param commitDetails {@link CommitMeta} from user input
-   * @return {@link PushAppResponse}
-   * @throws NoChangesToPushException if there's no change between the application in namespace
+   * @return list of {@link PushAppResponse}
+   * @throws NoChangesToPushException if there's no effective change between applications in namespace
    *     and git repository
    * @throws SourceControlException for failures while writing config file or doing git
    *     operations
@@ -298,13 +295,13 @@ public class InMemorySourceControlOperationRunner extends
       ).collect(Collectors.toList());
     } catch (GitAPIException e) {
       throw new GitOperationException(
-          String.format("Failed to push config to git: %s", e.getMessage()), e);
+          String.format("Failed to push configs to git: %s", e.getMessage()), e);
     }
   }
 
   /**
-   * Generate config file name from app name. Currently, it only adds `.json` as extension with app
-   * name being the filename.
+   * Generate config file name from app name.
+   * Currently, it only adds `.json` as extension with app name being the filename.
    *
    * @param appName Name of the application
    * @return The file name we want to store application config in
@@ -317,31 +314,27 @@ public class InMemorySourceControlOperationRunner extends
    * Validates if the resolved path is not a symbolic link and not a directory.
    *
    * @param repositoryManager the RepositoryManager
-   * @param appRelativePath the relative {@link Path} of the application to write to
+   * @param appRelativePath   the relative {@link Path} of the application to write to
    * @return A valid application config file relative path
    */
-  private Path validateAppConfigRelativePath(RepositoryManager repositoryManager,
-      Path appRelativePath) throws
-      IllegalArgumentException {
+  private Path validateAppConfigRelativePath(RepositoryManager repositoryManager, Path appRelativePath) throws
+    IllegalArgumentException {
     Path filePath = repositoryManager.getRepositoryRoot().resolve(appRelativePath);
     if (Files.isSymbolicLink(filePath)) {
       throw new IllegalArgumentException(String.format(
-          "%s exists but refers to a symbolic link. Symbolic links are " + "not allowed.",
-          appRelativePath));
+        "%s exists but refers to a symbolic link. Symbolic links are " + "not allowed.", appRelativePath));
     }
     if (Files.isDirectory(filePath)) {
-      throw new IllegalArgumentException(
-          String.format("%s refers to a directory not a file.", appRelativePath));
+      throw new IllegalArgumentException(String.format("%s refers to a directory not a file.", appRelativePath));
     }
     return filePath;
   }
 
   @Override
   public RepositoryAppsResponse list(NamespaceRepository nameSpaceRepository) throws
-      AuthenticationConfigException, NotFoundException {
-    try (RepositoryManager repositoryManager = repoManagerFactory.create(
-        nameSpaceRepository.getNamespaceId(),
-        nameSpaceRepository.getRepositoryConfig())) {
+    AuthenticationConfigException, NotFoundException {
+    try (RepositoryManager repositoryManager = repoManagerFactory.create(nameSpaceRepository.getNamespaceId(),
+                                                                         nameSpaceRepository.getRepositoryConfig())) {
       String currentCommit = repositoryManager.cloneRemote();
       Path basePath = repositoryManager.getBasePath();
 
@@ -367,23 +360,22 @@ public class InMemorySourceControlOperationRunner extends
       }
       return new RepositoryAppsResponse(responses);
     } catch (IOException | GitAPIException e) {
-      throw new GitOperationException(
-          String.format("Failed to list application configs in directory %s: %s",
-              nameSpaceRepository.getRepositoryConfig().getPathPrefix(),
-              e.getMessage()), e);
+      throw new GitOperationException(String.format("Failed to list application configs in directory %s: %s",
+                                                     nameSpaceRepository.getRepositoryConfig().getPathPrefix(),
+                                                     e.getMessage()), e);
     }
   }
 
+
   /**
-   * A helper function to get a {@link java.io.FileFilter} for application config files with
-   * following rules 1. Filter non-symbolic link files 2. Filter files with extension json
+   * A helper function to get a {@link java.io.FileFilter} for application config files with following rules
+   *    1. Filter non-symbolic link files
+   *    2. Filter files with extension json
    */
   private FileFilter getConfigFileFilter() {
     return file -> {
-      return Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
-          // only allow regular files
-          && FileUtils.getExtension(file.getName())
-          .equalsIgnoreCase("json"); // filter json extension
+      return Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS) // only allow regular files
+          && FileUtils.getExtension(file.getName()).equalsIgnoreCase("json"); // filter json extension
     };
   }
 

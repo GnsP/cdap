@@ -218,9 +218,8 @@ public class RepositoryManager implements AutoCloseable {
    *
    * @param commitMeta  Details for the commit including author, committer and
    *                    commit message
-   * @param filesChanged The relative path to repository root where the file is
-   *                    updated
-   * @return the hash of the written file.
+   * @param filesChanged The relative paths to repository root of the updated files
+   * @return map of changed file paths to git hash
    * @throws GitAPIException          when the underlying git commands fail
    * @throws NoChangesToPushException when there's no file changes for the
    *                                  commit
