@@ -45,6 +45,7 @@ import io.cdap.cdap.proto.sourcecontrol.RepositoryMeta;
 import io.cdap.cdap.proto.sourcecontrol.SourceControlMeta;
 import io.cdap.cdap.security.impersonation.CurrentUGIProvider;
 import io.cdap.cdap.security.impersonation.UGIProvider;
+import io.cdap.cdap.sourcecontrol.ApplicationManager;
 import io.cdap.cdap.sourcecontrol.AuthenticationConfigException;
 import io.cdap.cdap.sourcecontrol.NoChangesToPullException;
 import io.cdap.cdap.sourcecontrol.NoChangesToPushException;
@@ -60,7 +61,6 @@ import io.cdap.cdap.sourcecontrol.operationrunner.RepositoryApp;
 import io.cdap.cdap.sourcecontrol.operationrunner.RepositoryAppsResponse;
 import io.cdap.cdap.sourcecontrol.operationrunner.SourceControlOperationRunner;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Consumer;
@@ -498,8 +498,11 @@ public class SourceControlManagementServiceTest extends AppFabricTestBase {
     }
 
     @Override
-    public void push(MultiPushAppOperationRequest pushRequest, Consumer<Collection<PushAppResponse>> consumer)
-        throws NotFoundException, AuthenticationConfigException, NoChangesToPushException {}
+    public List<PushAppResponse> multiPush(MultiPushAppOperationRequest pushRequest,
+        ApplicationManager appManager)
+        throws NoChangesToPushException, AuthenticationConfigException {
+      return null;
+    }
 
     @Override
     public PullAppResponse<?> pull(PullAppOperationRequest pullRequest)

@@ -25,7 +25,6 @@ import io.cdap.cdap.common.NotFoundException;
 import io.cdap.cdap.internal.operation.LongRunningOperation;
 import io.cdap.cdap.internal.operation.LongRunningOperationContext;
 import io.cdap.cdap.internal.operation.OperationException;
-import io.cdap.cdap.metadata.ApplicationDetailFetcher;
 import io.cdap.cdap.proto.app.UpdateMultiSourceControlMetaReqeust;
 import io.cdap.cdap.proto.app.UpdateSourceControlMetaRequest;
 import io.cdap.cdap.proto.id.NamespaceId;
@@ -67,7 +66,7 @@ public class PushAppsOperation implements LongRunningOperation {
   @Inject
   PushAppsOperation(@Assisted PushAppsRequest request,
       InMemorySourceControlOperationRunner runner,
-      ApplicationManager applicationManager, ApplicationDetailFetcher appDetailsFetcher) {
+      ApplicationManager applicationManager) {
     this.request = request;
     this.applicationManager = applicationManager;
     this.scmOpRunner = runner;
