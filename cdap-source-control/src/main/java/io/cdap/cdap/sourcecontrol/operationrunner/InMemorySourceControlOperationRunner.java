@@ -129,7 +129,7 @@ public class InMemorySourceControlOperationRunner extends
           appVersions.add(new AppVersion(detail.getName(), detail.getAppVersion()));
         } catch (IOException | NotFoundException e) {
           throw new SourceControlException(
-              String.format("Failed to fetch details for app %s", appRef));
+              String.format("Failed to fetch details for app %s", appRef), e);
         }
       }
 
@@ -209,8 +209,7 @@ public class InMemorySourceControlOperationRunner extends
     try {
       repositoryManager.cloneRemote();
     } catch (GitAPIException | IOException e) {
-      throw new GitOperationException(String.format("Failed to clone remote repository: %s",
-          e.getMessage()), e);
+      throw new GitOperationException("Failed to clone remote repository.", e);
     }
     try {
       // Creates the base directory if it does not exist. This method does not throw an exception if the directory

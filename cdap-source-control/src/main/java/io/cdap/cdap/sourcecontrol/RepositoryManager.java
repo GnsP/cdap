@@ -228,8 +228,8 @@ public class RepositoryManager implements AutoCloseable {
    * @throws SourceControlException   when failed to get the fileHash before
    *                                  push
    */
-  public Map<Path, String> commitAndPush(final CommitMeta commitMeta,
-      final Set<Path> filesChanged)
+  public Map<Path, String> commitAndPush(CommitMeta commitMeta,
+      Set<Path> filesChanged)
       throws NoChangesToPushException, GitAPIException {
     validateInitialized();
     final Stopwatch stopwatch = new Stopwatch().start();

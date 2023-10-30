@@ -87,7 +87,6 @@ public class PushAppsOperation implements LongRunningOperation {
     List<PushAppResponse> responses = new ArrayList<>();
 
     try {
-      // pull and deploy applications one at a time
       responses = scmOpRunner.multiPush(pushReq, applicationManager);
       context.updateOperationResources(getResources(namespaceId, responses));
     } catch (SourceControlException | NoChangesToPushException e) {
