@@ -14,20 +14,22 @@
  * the License.
  */
 
-package io.cdap.cdap.internal.app.sourcecontrol;
+package io.cdap.cdap.proto.sourcecontrol;
+
+import io.cdap.cdap.proto.id.NamespaceId;
+import java.util.List;
 
 /**
- * Factory interface for creating {@link PushAppsOperation}.
- * This interface is for Guice assisted binding, hence there will be no concrete implementation of it.
+ * The request class to push multiple applications (in the same namespace) to linked git repository.
  */
-public interface PushAppsOperationFactory {
+public class PullMultipleAppsRequest {
+  private final List<String> apps;
 
-  /**
-   * Returns an implementation of {@link PushAppsOperation} that operates on the given {@link
-   * PushAppsRequest}.
-   *
-   * @param request contains list of apps to push
-   * @return a new instance of {@link PushAppsOperation}.
-   */
-  PushAppsOperation create(PushAppsRequest request);
+  public PullMultipleAppsRequest(List<String> apps) {
+    this.apps = apps;
+  }
+
+  public List<String> getApps() {
+    return apps;
+  }
 }

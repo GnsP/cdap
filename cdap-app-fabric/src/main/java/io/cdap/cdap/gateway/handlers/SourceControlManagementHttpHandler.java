@@ -34,7 +34,10 @@ import io.cdap.cdap.internal.app.services.SourceControlManagementService;
 import io.cdap.cdap.proto.ApplicationRecord;
 import io.cdap.cdap.proto.id.ApplicationReference;
 import io.cdap.cdap.proto.id.NamespaceId;
+import io.cdap.cdap.proto.operation.OperationMeta;
+import io.cdap.cdap.proto.sourcecontrol.PullMultipleAppsRequest;
 import io.cdap.cdap.proto.sourcecontrol.PushAppRequest;
+import io.cdap.cdap.proto.sourcecontrol.PushMultipleAppsRequest;
 import io.cdap.cdap.proto.sourcecontrol.RemoteRepositoryValidationException;
 import io.cdap.cdap.proto.sourcecontrol.RepositoryConfigRequest;
 import io.cdap.cdap.proto.sourcecontrol.RepositoryConfigValidationException;
@@ -184,6 +187,49 @@ public class SourceControlManagementHttpHandler extends AbstractAppFabricHttpHan
   }
 
   /**
+   * Pushes application configs of requested applications to linked repository in Json format.
+   * It expects a post body that has a list of application ids and an optional commit message
+   * E.g.
+   *
+   * <pre>
+   * {@code
+   * {
+   *   "appIds": ["app_id_1", "app_id_2"],
+   *   "commitMessage": "pushed application XYZ"
+   * }
+   * }
+   *
+   * </pre>
+   * The response will be a {@link OperationMeta} object, which encapsulates the application name,
+   * version and fileHash.
+   */
+  @POST
+  @Path("/apps/push")
+  public void pushApps(FullHttpRequest request, HttpResponder responder,
+      @PathParam("namespace-id") String namespaceId) throws Exception {
+    checkSourceControlMultiFeatureFlag();
+    NamespaceId namespace = validateNamespaceId(namespaceId);
+
+    PushMultipleAppsRequest appsRequest;
+    try {
+      appsRequest = parseBody(request, PushMultipleAppsRequest.class);
+    } catch (JsonSyntaxException e) {
+      throw new BadRequestException("Invalid request body.", e);
+    }
+
+    if (appsRequest == null) {
+      throw new BadRequestException("Invalid request body.");
+    }
+
+    if (Strings.isNullOrEmpty(appsRequest.getCommitMessage())) {
+      throw new BadRequestException("Please specify commit message in the request body.");
+    }
+
+    OperationMeta operationMeta = sourceControlService.pushApps(namespace, appsRequest);
+    responder.sendJson(HttpResponseStatus.OK, GSON.toJson(operationMeta));
+  }
+
+  /**
    * Pull the requested application from linked repository and deploy in current namespace.
    */
   @POST
@@ -200,6 +246,31 @@ public class SourceControlManagementHttpHandler extends AbstractAppFabricHttpHan
     } catch (NoChangesToPullException e) {
       responder.sendString(HttpResponseStatus.OK, e.getMessage());
     }
+  }
+
+  /**
+   * Pull the requested applications from linked repository and deploy in current namespace.
+   */
+  @POST
+  @Path("/apps/pull")
+  public void pullApps(FullHttpRequest request, HttpResponder responder,
+      @PathParam("namespace-id") String namespaceId) throws Exception {
+    checkSourceControlMultiFeatureFlag();
+    NamespaceId namespace = validateNamespaceId(namespaceId);
+
+    PullMultipleAppsRequest appsRequest;
+    try {
+      appsRequest = parseBody(request, PullMultipleAppsRequest.class);
+    } catch (JsonSyntaxException e) {
+      throw new BadRequestException("Invalid request body.", e);
+    }
+
+    if (appsRequest == null) {
+      throw new BadRequestException("Invalid request body.");
+    }
+
+    OperationMeta operationMeta = sourceControlService.pullApps(namespace, appsRequest);
+    responder.sendJson(HttpResponseStatus.OK, GSON.toJson(operationMeta));
   }
 
   private PushAppRequest validateAndGetAppsRequest(FullHttpRequest request) throws BadRequestException {
@@ -224,6 +295,13 @@ public class SourceControlManagementHttpHandler extends AbstractAppFabricHttpHan
   private void checkSourceControlFeatureFlag() throws ForbiddenException {
     if (!Feature.SOURCE_CONTROL_MANAGEMENT_GIT.isEnabled(featureFlagsProvider)) {
       throw new ForbiddenException("Source Control Management feature is not enabled.");
+    }
+  }
+
+  private void checkSourceControlMultiFeatureFlag() throws ForbiddenException {
+    checkSourceControlFeatureFlag();
+    if (!Feature.SOURCE_CONTROL_MANAGEMENT_MULTIPLE_APPS.isEnabled(featureFlagsProvider)) {
+      throw new ForbiddenException("Source Control Management for multiple apps feature is not enabled.");
     }
   }
 

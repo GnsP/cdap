@@ -116,6 +116,8 @@ import io.cdap.cdap.internal.app.services.ProgramLifecycleService;
 import io.cdap.cdap.internal.app.services.RunRecordCorrectorService;
 import io.cdap.cdap.internal.app.services.RunRecordMonitorService;
 import io.cdap.cdap.internal.app.services.ScheduledRunRecordCorrectorService;
+import io.cdap.cdap.internal.app.sourcecontrol.PullAppsOperationFactory;
+import io.cdap.cdap.internal.app.sourcecontrol.PushAppsOperationFactory;
 import io.cdap.cdap.internal.app.store.DefaultStore;
 import io.cdap.cdap.internal.bootstrap.guice.BootstrapModules;
 import io.cdap.cdap.internal.capability.CapabilityModule;
@@ -158,6 +160,7 @@ import io.cdap.cdap.security.impersonation.SecurityUtil;
 import io.cdap.cdap.security.impersonation.UGIProvider;
 import io.cdap.cdap.security.impersonation.UnsupportedUGIProvider;
 import io.cdap.cdap.security.store.SecureStoreHandler;
+import io.cdap.cdap.sourcecontrol.ApplicationManager;
 import io.cdap.cdap.sourcecontrol.guice.SourceControlModule;
 import io.cdap.cdap.spi.events.StartProgramEvent;
 import io.cdap.http.HttpHandler;
@@ -370,6 +373,12 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
               .build(Key.get(ConfiguratorFactory.class,
                   Names.named(AppFabric.FACTORY_IMPLEMENTATION_REMOTE)))
       );
+
+      bind(ApplicationManager.class).to(
+          io.cdap.cdap.internal.app.sourcecontrol.LocalApplicationManager.class);
+      install(new FactoryModuleBuilder().build(PullAppsOperationFactory.class));
+      install(new FactoryModuleBuilder().build(PushAppsOperationFactory.class));
+
       // Used in InMemoryProgramRunDispatcher, TetheringClientHandler
       install(RemoteAuthenticatorModules.getDefaultModule(
           TetheringAgentService.REMOTE_TETHERING_AUTHENTICATOR,

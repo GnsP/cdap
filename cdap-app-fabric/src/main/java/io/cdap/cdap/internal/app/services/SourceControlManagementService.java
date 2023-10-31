@@ -16,6 +16,7 @@
 
 package io.cdap.cdap.internal.app.services;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
 import io.cdap.cdap.api.artifact.ArtifactSummary;
 import io.cdap.cdap.api.security.store.SecureStore;
@@ -26,6 +27,14 @@ import io.cdap.cdap.common.RepositoryNotFoundException;
 import io.cdap.cdap.common.app.RunIds;
 import io.cdap.cdap.common.conf.CConfiguration;
 import io.cdap.cdap.internal.app.deploy.pipeline.ApplicationWithPrograms;
+import io.cdap.cdap.internal.app.sourcecontrol.PullAppsOperation;
+import io.cdap.cdap.internal.app.sourcecontrol.PullAppsOperationFactory;
+import io.cdap.cdap.internal.app.sourcecontrol.PullAppsRequest;
+import io.cdap.cdap.internal.app.sourcecontrol.PushAppsOperation;
+import io.cdap.cdap.internal.app.sourcecontrol.PushAppsOperationFactory;
+import io.cdap.cdap.internal.app.sourcecontrol.PushAppsRequest;
+import io.cdap.cdap.internal.operation.OperationException;
+import io.cdap.cdap.internal.operation.SynchronousLongRunningOperationContext;
 import io.cdap.cdap.proto.ApplicationDetail;
 import io.cdap.cdap.proto.ApplicationRecord;
 import io.cdap.cdap.proto.artifact.AppRequest;
@@ -33,8 +42,13 @@ import io.cdap.cdap.proto.id.ApplicationId;
 import io.cdap.cdap.proto.id.ApplicationReference;
 import io.cdap.cdap.proto.id.KerberosPrincipalId;
 import io.cdap.cdap.proto.id.NamespaceId;
+import io.cdap.cdap.proto.operation.OperationMeta;
+import io.cdap.cdap.proto.operation.OperationResource;
+import io.cdap.cdap.proto.operation.OperationType;
 import io.cdap.cdap.proto.security.NamespacePermission;
 import io.cdap.cdap.proto.security.StandardPermission;
+import io.cdap.cdap.proto.sourcecontrol.PullMultipleAppsRequest;
+import io.cdap.cdap.proto.sourcecontrol.PushMultipleAppsRequest;
 import io.cdap.cdap.proto.sourcecontrol.RemoteRepositoryValidationException;
 import io.cdap.cdap.proto.sourcecontrol.RepositoryConfig;
 import io.cdap.cdap.proto.sourcecontrol.RepositoryMeta;
@@ -62,7 +76,10 @@ import io.cdap.cdap.spi.data.transaction.TransactionRunners;
 import io.cdap.cdap.store.NamespaceTable;
 import io.cdap.cdap.store.RepositoryTable;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,6 +96,8 @@ public class SourceControlManagementService {
   private final SourceControlOperationRunner sourceControlOperationRunner;
   private final ApplicationLifecycleService appLifecycleService;
   private final Store store;
+  private final PushAppsOperationFactory pushAppsOperationFactory;
+  private final PullAppsOperationFactory pullAppsOperationFactory;
   private static final Logger LOG = LoggerFactory.getLogger(SourceControlManagementService.class);
 
 
@@ -93,7 +112,8 @@ public class SourceControlManagementService {
                                         AuthenticationContext authenticationContext,
                                         SourceControlOperationRunner sourceControlOperationRunner,
                                         ApplicationLifecycleService applicationLifecycleService,
-                                        Store store) {
+                                        Store store, PushAppsOperationFactory pushAppsOperationFactory,
+                                        PullAppsOperationFactory pullAppsOperationFactory) {
     this.cConf = cConf;
     this.secureStore = secureStore;
     this.transactionRunner = transactionRunner;
@@ -102,6 +122,8 @@ public class SourceControlManagementService {
     this.sourceControlOperationRunner = sourceControlOperationRunner;
     this.appLifecycleService = applicationLifecycleService;
     this.store = store;
+    this.pushAppsOperationFactory = pushAppsOperationFactory;
+    this.pullAppsOperationFactory = pullAppsOperationFactory;
   }
 
   private RepositoryTable getRepositoryTable(StructuredTableContext context) throws TableNotFoundException {
@@ -203,7 +225,7 @@ public class SourceControlManagementService {
     // TODO: CDAP-20396 RepositoryConfig is currently only accessible from the service layer
     //  Need to fix it and avoid passing it in RepositoryManagerFactory
     RepositoryConfig repoConfig = getRepositoryMeta(appRef.getParent()).getConfig();
-    
+
     // AppLifecycleService already enforces ApplicationDetail Access
     ApplicationDetail appDetail = appLifecycleService.getLatestAppDetail(appRef, false);
 
@@ -224,7 +246,7 @@ public class SourceControlManagementService {
         appRef.getApplication(),
         appRef.getParent(),
         appLifecycleService.decodeUserId(authenticationContext));
-    
+
     SourceControlMeta sourceControlMeta = new SourceControlMeta(pushResponse.getFileHash());
     ApplicationId appId = appRef.app(appDetail.getAppVersion());
     store.setAppSourceControlMeta(appId, sourceControlMeta);
@@ -251,7 +273,7 @@ public class SourceControlManagementService {
     accessEnforcer.enforce(appId, authenticationContext.getPrincipal(), StandardPermission.CREATE);
     accessEnforcer.enforce(appRef.getParent(), authenticationContext.getPrincipal(),
         NamespacePermission.READ_REPOSITORY);
-    
+
     PullAppResponse<?> pullResponse = pullAndValidateApplication(appRef);
 
     AppRequest<?> appRequest = pullResponse.getAppRequest();
@@ -318,5 +340,74 @@ public class SourceControlManagementService {
         NamespacePermission.READ_REPOSITORY);
     RepositoryConfig repoConfig = getRepositoryMeta(namespace).getConfig();
     return sourceControlOperationRunner.list(new NamespaceRepository(namespace, repoConfig));
+  }
+
+  /**
+   * The method to push multiple applications in the same namespace to the linked repository.
+   *
+   * @param namespace {@link NamespaceId} from where the apps are to be pushed
+   * @param request {@link PushMultipleAppsRequest} containing the appIds and the commit message
+   *
+   * @return {@link OperationMeta} of the operation to push the apps
+   * @throws NoChangesToPushException when none of the apps have changed since last commit
+   * @throws NotFoundException when the repository or any of the apps are not found
+   * @throws InterruptedException when the push operation is inturrupted
+   * @throws ExecutionException when the push operation execution fails
+   * @throws OperationException for any exception occuring in the operation logic
+   */
+  public OperationMeta pushApps(NamespaceId namespace, PushMultipleAppsRequest request)
+      throws NoChangesToPushException, NotFoundException, InterruptedException,
+      ExecutionException, OperationException {
+    accessEnforcer.enforce(namespace, authenticationContext.getPrincipal(),
+        NamespacePermission.WRITE_REPOSITORY);
+    RepositoryConfig repoConfig = getRepositoryMeta(namespace).getConfig();
+    String committer = authenticationContext.getPrincipal().getName();
+    PushAppsOperation pushOp = pushAppsOperationFactory.create(new PushAppsRequest(
+        new HashSet<>(request.getApps()),
+        repoConfig,
+        new CommitMeta(committer, committer, System.currentTimeMillis(), request.getCommitMessage())
+    ));
+
+    SynchronousLongRunningOperationContext operationContext = new SynchronousLongRunningOperationContext(
+        namespace.getNamespace(),
+        OperationType.PUSH_APPS
+    );
+    ListenableFuture<Set<OperationResource>> result = pushOp.run(operationContext);
+    result.get();
+
+    return operationContext.getOperationMeta();
+  }
+
+  /**
+   * The method to pull multiple applications from the linked repository and deploy them in current namespace.
+   *
+   * @param namespace {@link NamespaceId} from where the apps are to be pushed
+   * @param request {@link PullMultipleAppsRequest} containing the appIds
+   *
+   * @return {@link OperationMeta} of the operation to push the apps
+   * @throws NotFoundException when the repository or any of the apps are not found
+   * @throws InterruptedException when the push operation is inturrupted
+   * @throws ExecutionException when the push operation execution fails
+   * @throws OperationException for any exception occuring in the operation logic
+   */
+  public OperationMeta pullApps(NamespaceId namespace, PullMultipleAppsRequest request)
+      throws NotFoundException, InterruptedException,
+      ExecutionException, OperationException {
+    accessEnforcer.enforce(namespace, authenticationContext.getPrincipal(),
+        NamespacePermission.READ_REPOSITORY);
+    RepositoryConfig repoConfig = getRepositoryMeta(namespace).getConfig();
+    PullAppsOperation pullOp = pullAppsOperationFactory.create(new PullAppsRequest(
+        new HashSet<>(request.getApps()),
+        repoConfig
+    ));
+
+    SynchronousLongRunningOperationContext operationContext = new SynchronousLongRunningOperationContext(
+        namespace.getNamespace(),
+        OperationType.PULL_APPS
+    );
+    ListenableFuture<Set<OperationResource>> result = pullOp.run(operationContext);
+    result.get();
+
+    return operationContext.getOperationMeta();
   }
 }
