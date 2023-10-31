@@ -21,6 +21,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import io.cdap.cdap.api.metrics.MetricsCollectionService;
 import io.cdap.cdap.api.metrics.MetricsContext;
 import io.cdap.cdap.api.security.store.SecureStore;
@@ -48,6 +49,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.eclipse.jgit.api.CloneCommand;
@@ -73,6 +75,8 @@ import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RemoteConfig;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.treewalk.filter.OrTreeFilter;
+import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -247,22 +251,11 @@ public class RepositoryManager implements AutoCloseable {
 
     RevCommit commit = getCommitCommand(commitMeta).call();
 
-    Map<Path, String> fileHashes = new HashMap<>();
-    for (Path fileChanged : filesChanged) {
-      try {
-        String fileHash = getFileHash(fileChanged, commit);
-        fileHashes.put(fileChanged, fileHash);
-        if (fileHash == null) {
-          throw new SourceControlException(
-              String.format(
-                  "Failed to get fileHash for %s, because the path is not "
-                      + "found in Git tree", fileChanged));
-        }
-      } catch (IOException e) {
-        throw new GitOperationException(
-            String.format("Failed to get fileHash for %s", fileChanged),
-            e);
-      }
+    Map<Path, String> fileHashes;
+    try {
+      fileHashes = getFileHashes(filesChanged, commit);
+    } catch (IOException e) {
+      throw new GitOperationException("Failed to get fileHashes", e);
     }
 
     if (fileHashes.size() != filesChanged.size()) {
@@ -427,6 +420,38 @@ public class RepositoryManager implements AutoCloseable {
       }
       return walk.getObjectId(0).getName();
     }
+  }
+
+  private Map<Path, String> getFileHashes(Set<Path> relativePaths, RevCommit commit)
+      throws IOException, SourceControlException {
+    Map<Path, String> fileHashes = new HashMap<>();
+    if (relativePaths.size() == 0) {
+      return fileHashes;
+    }
+
+    try (TreeWalk walk = new TreeWalk(git.getRepository())) {
+      walk.addTree(commit.getTree());
+      if (relativePaths.size() >= 2) {
+        walk.setFilter(OrTreeFilter.create(
+            relativePaths.stream().map(path -> PathFilter.create(path.toString()))
+                .collect(Collectors.toList())
+        ));
+      } else {
+        walk.setFilter(PathFilter.create(Iterables.getOnlyElement(relativePaths).toString()));
+      }
+      while (walk.next()) {
+        String fileHash = walk.getObjectId(0).getName();
+        Path filePath = Paths.get(walk.getPathString());
+        if (fileHash == null) {
+          throw new SourceControlException(
+              String.format(
+                  "Failed to get fileHash for %s, because the path is not "
+                      + "found in Git tree", filePath));
+        }
+        fileHashes.put(filePath, fileHash);
+      }
+    }
+    return fileHashes;
   }
 
   private <C extends TransportCommand> C createCommand(
